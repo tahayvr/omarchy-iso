@@ -115,6 +115,20 @@ EOF
   mkdir -p /mnt/home/$OMARCHY_USER/.local/share/
   cp -r /root/omarchy /mnt/home/$OMARCHY_USER/.local/share/
 
+  # Overlay user-provided configs into .local/share/omarchy/config
+  if [[ -d /root/custom-config ]]; then
+    target_config="/mnt/home/$OMARCHY_USER/.local/share/omarchy/config"
+    mkdir -p "$target_config"
+    # For each top-level folder (e.g., hypr, waybar, kitty), replace Omarchy's version
+    for folder in /root/custom-config/*; do
+      if [[ -d "$folder" ]]; then
+        name=$(basename "$folder")
+        rm -rf "$target_config/$name"
+        cp -r "$folder" "$target_config/$name"
+      fi
+    done
+  fi
+
   chown -R 1000:1000 /mnt/home/$OMARCHY_USER/.local/
 
   # Ensure all necessary scripts are executable

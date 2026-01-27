@@ -44,6 +44,11 @@ else
   git clone -b $OMARCHY_INSTALLER_REF https://github.com/$OMARCHY_INSTALLER_REPO.git "$build_cache_dir/airootfs/root/omarchy"
 fi
 
+# Append custom ignored packages to omarchy's packages.ignored
+if [[ -f /builder/custom.ignored ]]; then
+  cat /builder/custom.ignored >> "$build_cache_dir/airootfs/root/omarchy/install/packages.ignored"
+fi
+
 # Make log uploader available in the ISO too
 mkdir -p "$build_cache_dir/airootfs/usr/local/bin/"
 cp "$build_cache_dir/airootfs/root/omarchy/bin/omarchy-upload-log" "$build_cache_dir/airootfs/usr/local/bin/omarchy-upload-log"
@@ -83,6 +88,27 @@ all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/om
 all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-other.packages" | grep -v '^$'))
 all_packages+=($(grep -v '^#' /builder/archinstall.packages | grep -v '^$'))
 
+# Optional: user-defined custom packages
+if [[ -f /builder/custom-arch.packages ]]; then
+  all_packages+=($(grep -v '^#' /builder/custom-arch.packages | grep -v '^$'))
+fi
+
+# Remove packages listed in custom.ignored
+if [[ -f /builder/custom.ignored ]]; then
+  mapfile -t ignored_packages < <(grep -v '^#' /builder/custom.ignored | grep -v '^$')
+  
+  if ((${#ignored_packages[@]} > 0)); then
+    ignore_regex="^($(printf '%s|' "${ignored_packages[@]}" | sed 's/|$//'))$"
+    filtered_packages=()
+    for pkg in "${all_packages[@]}"; do
+      if ! [[ $pkg =~ $ignore_regex ]]; then
+        filtered_packages+=("$pkg")
+      fi
+    done
+    all_packages=("${filtered_packages[@]}")
+  fi
+fi
+
 # Download all the packages to the offline mirror inside the ISO
 mkdir -p /tmp/offlinedb
 if [[ $OMARCHY_MIRROR == "edge" ]]; then
@@ -90,6 +116,41 @@ if [[ $OMARCHY_MIRROR == "edge" ]]; then
 else
   pacman --config /configs/pacman-online-stable.conf --noconfirm -Syw "${all_packages[@]}" --cachedir $offline_mirror_dir/ --dbpath /tmp/offlinedb
 fi
+# Build and package AUR packages if specified
+if [[ -f /builder/custom-aur.packages ]]; then
+  aur_packages=($(grep -v '^#' /builder/custom-aur.packages | grep -v '^$'))
+  
+  if [[ ${#aur_packages[@]} -gt 0 ]]; then
+    echo "Building ${#aur_packages[@]} AUR package(s)..."
+    
+    # Create a build user (makepkg doesn't run as root)
+    useradd -m -G wheel builduser
+    echo "builduser ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+    
+    # Install yay for the build user
+    su - builduser -c "
+      cd /tmp
+      git clone https://aur.archlinux.org/yay-bin.git
+      cd yay-bin
+      makepkg -si --noconfirm
+    "
+    
+    # Create build directory
+    mkdir -p /tmp/aur-builds
+    chown builduser:builduser /tmp/aur-builds
+    
+    # Build each AUR package
+    for pkg in \"\${aur_packages[@]}\"; do
+      echo "Building AUR package: \$pkg"
+      su - builduser -c "yay -S --noconfirm --needed --builddir /tmp/aur-builds \$pkg"
+      
+      # Copy built package to offline mirror
+      find /tmp/aur-builds -name \"*.pkg.tar.zst\" -exec cp {} $offline_mirror_dir/ \;
+    done
+  fi
+fi
+
+# Add all packages to the offline repository database
 repo-add --new "$offline_mirror_dir/offline.db.tar.gz" "$offline_mirror_dir/"*.pkg.tar.zst
 
 # Create a symlink to the offline mirror instead of duplicating it.
