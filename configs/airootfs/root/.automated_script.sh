@@ -129,6 +129,38 @@ EOF
     done
   fi
 
+  # Copy user-provided home dotfiles to omarchy's default directory
+  if [[ -d /root/omarchy/default/home-dotfiles ]]; then
+    # Copy each dotfile/folder from home-dotfiles to the default directory
+    for item in /root/omarchy/default/home-dotfiles/*; do
+      if [[ -e "$item" ]]; then
+        cp -r "$item" /mnt/home/$OMARCHY_USER/.local/share/omarchy/default/
+      fi
+    done
+    
+    # Modify omarchy's config.sh to copy home dotfiles
+    config_sh="/mnt/home/$OMARCHY_USER/.local/share/omarchy/install/config/config.sh"
+    if [[ -f "$config_sh" ]]; then
+      # Add logic to copy home dotfiles after the bashrc line
+      sed -i '/cp ~\/.local\/share\/omarchy\/default\/bashrc ~\/.bashrc/a\
+\
+# Copy user-provided home dotfiles\
+if [[ -d ~/.local/share/omarchy/default/home-dotfiles ]]; then\
+  for item in ~/.local/share/omarchy/default/home-dotfiles/*; do\
+    if [[ -e "$item" ]]; then\
+      item_name=$(basename "$item")\
+      # Copy files directly, folders recursively\
+      if [[ -d "$item" ]]; then\
+        cp -r "$item" ~/"$item_name"\
+      else\
+        cp "$item" ~/"$item_name"\
+      fi\
+    fi\
+  done\
+fi' "$config_sh"
+    fi
+  fi
+
   chown -R 1000:1000 /mnt/home/$OMARCHY_USER/.local/
 
   # Ensure all necessary scripts are executable
