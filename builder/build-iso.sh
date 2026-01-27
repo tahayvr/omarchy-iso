@@ -44,9 +44,50 @@ else
   git clone -b $OMARCHY_INSTALLER_REF https://github.com/$OMARCHY_INSTALLER_REPO.git "$build_cache_dir/airootfs/root/omarchy"
 fi
 
-# Append custom ignored packages to omarchy's packages.ignored
+# Remove user-excluded packages from omarchy-base.packages
 if [[ -f /builder/custom.ignored ]]; then
-  cat /builder/custom.ignored >> "$build_cache_dir/airootfs/root/omarchy/install/packages.ignored"
+  omarchy_base_packages="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
+  
+  if [[ -f "$omarchy_base_packages" ]]; then
+    # Read excluded packages into array
+    mapfile -t excluded_packages < <(grep -v '^#' /builder/custom.ignored | grep -v '^$')
+    
+    if ((${#excluded_packages[@]} > 0)); then
+      echo "Removing ${#excluded_packages[@]} excluded package(s) from omarchy-base.packages"
+      
+      # Create a temporary file
+      temp_file=$(mktemp)
+      
+      # Copy omarchy-base.packages, excluding user-selected packages
+      while IFS= read -r line; do
+        # Keep comments and empty lines
+        if [[ "$line" =~ ^# ]] || [[ -z "$line" ]]; then
+          echo "$line" >> "$temp_file"
+        else
+          # Check if this package should be excluded
+          should_exclude=false
+          for excluded in "${excluded_packages[@]}"; do
+            if [[ "$line" == "$excluded" ]]; then
+              should_exclude=true
+              echo "  Excluding: $excluded"
+              break
+            fi
+          done
+          
+          # Only add if not excluded
+          if [[ "$should_exclude" == false ]]; then
+            echo "$line" >> "$temp_file"
+          fi
+        fi
+      done < "$omarchy_base_packages"
+      
+      # Replace original with filtered version
+      mv "$temp_file" "$omarchy_base_packages"
+      echo "Excluded packages removed from omarchy-base.packages"
+    fi
+  else
+    echo "Warning: omarchy-base.packages not found at $omarchy_base_packages"
+  fi
 fi
 
 # Make log uploader available in the ISO too
