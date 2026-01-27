@@ -38,6 +38,7 @@ cp -r /configs/* $build_cache_dir/
 echo "$OMARCHY_MIRROR" > "$build_cache_dir/airootfs/root/omarchy_mirror"
 
 # Setup Omarchy itself
+rm -rf "$build_cache_dir/airootfs/root/omarchy"
 if [[ -d /omarchy ]]; then
   cp -rp /omarchy "$build_cache_dir/airootfs/root/omarchy"
 else
@@ -171,6 +172,7 @@ if [[ -f /builder/custom-aur.packages ]]; then
     # Install yay for the build user
     su - builduser -c "
       cd /tmp
+      rm -rf yay-bin
       git clone https://aur.archlinux.org/yay-bin.git
       cd yay-bin
       makepkg -si --noconfirm
