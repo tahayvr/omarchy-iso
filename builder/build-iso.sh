@@ -53,12 +53,6 @@ if [[ -f "$target_pkg_list" ]]; then
         echo "" >> "$target_pkg_list"
         grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
     fi
-
-    if [[ -f /builder/custom-aur.packages ]]; then
-        echo "Adding custom AUR packages to installer list..."
-        echo "" >> "$target_pkg_list"
-        grep -v '^#' /builder/custom-aur.packages | grep -v '^$' >> "$target_pkg_list" || true
-    fi
 fi
 
 # Remove user-excluded packages from omarchy-base.packages
@@ -211,6 +205,15 @@ fi
 
 # Add all packages to the offline repository database
 repo-add --new "$offline_mirror_dir/offline.db.tar.gz" "$offline_mirror_dir/"*.pkg.tar.zst
+
+# Inject custom AUR packages into the installer's package list
+# We do this LATE (after repo-add) so they are not included in the 'pacman -Syw' loop earlier
+target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
+if [[ -f "$target_pkg_list" ]] && [[ -f /builder/custom-aur.packages ]]; then
+    echo "Adding custom AUR packages to installer list..."
+    echo "" >> "$target_pkg_list"
+    grep -v '^#' /builder/custom-aur.packages | grep -v '^$' >> "$target_pkg_list" || true
+fi
 
 # Create a symlink to the offline mirror instead of duplicating it.
 # mkarchiso needs packages at /var/cache/omarchy/mirror/offline in the container,
