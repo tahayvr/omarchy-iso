@@ -31,9 +31,6 @@ rm -rf "$build_cache_dir/airootfs/etc/systemd/system/multi-user.target.wants/ref
 rm -rf "$build_cache_dir/airootfs/etc/systemd/system/reflector.service.d"
 rm -rf "$build_cache_dir/airootfs/etc/xdg/reflector"
 
-# Bring in our configs
-cp -r /configs/* $build_cache_dir/
-
 # Persist OMARCHY_MIRROR so it's available at install time
 echo "$OMARCHY_MIRROR" > "$build_cache_dir/airootfs/root/omarchy_mirror"
 
@@ -43,6 +40,25 @@ if [[ -d /omarchy ]]; then
   cp -rp /omarchy "$build_cache_dir/airootfs/root/omarchy"
 else
   git clone -b $OMARCHY_INSTALLER_REF https://github.com/$OMARCHY_INSTALLER_REPO.git "$build_cache_dir/airootfs/root/omarchy"
+fi
+
+# Bring in User's Custom configs, overlaying them on top of the cloned repo
+cp -r /configs/* $build_cache_dir/
+
+# Inject custom packages into the installer's package list
+target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
+if [[ -f "$target_pkg_list" ]]; then
+    if [[ -f /builder/custom-arch.packages ]]; then
+        echo "Adding custom official packages to installer list..."
+        echo "" >> "$target_pkg_list"
+        grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
+    fi
+
+    if [[ -f /builder/custom-aur.packages ]]; then
+        echo "Adding custom AUR packages to installer list..."
+        echo "" >> "$target_pkg_list"
+        grep -v '^#' /builder/custom-aur.packages | grep -v '^$' >> "$target_pkg_list" || true
+    fi
 fi
 
 # Remove user-excluded packages from omarchy-base.packages
