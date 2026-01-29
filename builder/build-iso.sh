@@ -27,9 +27,9 @@ cp -r /archiso/configs/releng/* $build_cache_dir/
 rm "$build_cache_dir/airootfs/etc/motd"
 
 # Avoid using reflector for mirror identification as we are relying on the global CDN
-rm -rf "$build_cache_dir/airootfs/etc/systemd/system/multi-user.target.wants/reflector.service"
-rm -rf "$build_cache_dir/airootfs/etc/systemd/system/reflector.service.d"
-rm -rf "$build_cache_dir/airootfs/etc/xdg/reflector"
+# rm -rf "$build_cache_dir/airootfs/etc/systemd/system/multi-user.target.wants/reflector.service"
+# rm -rf "$build_cache_dir/airootfs/etc/systemd/system/reflector.service.d"
+# rm -rf "$build_cache_dir/airootfs/etc/xdg/reflector"
 
 # Persist OMARCHY_MIRROR so it's available at install time
 echo "$OMARCHY_MIRROR" > "$build_cache_dir/airootfs/root/omarchy_mirror"
@@ -44,16 +44,6 @@ fi
 
 # Bring in User's Custom configs, overlaying them on top of the cloned repo
 cp -r /configs/* $build_cache_dir/
-
-# Inject custom packages into the installer's package list
-target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
-if [[ -f "$target_pkg_list" ]]; then
-    if [[ -f /builder/custom-arch.packages ]]; then
-        echo "Adding custom official packages to installer list..."
-        echo "" >> "$target_pkg_list"
-        grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
-    fi
-fi
 
 # Remove user-excluded packages from omarchy-base.packages
 if [[ -f /builder/custom.ignored ]]; then
@@ -99,6 +89,17 @@ if [[ -f /builder/custom.ignored ]]; then
   else
     echo "Warning: omarchy-base.packages not found at $omarchy_base_packages"
   fi
+fi
+
+# Inject custom packages into the installer's package list
+target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
+if [[ -f "$target_pkg_list" ]]; then
+    if [[ -f /builder/custom-arch.packages ]]; then
+        echo "Adding custom official packages to installer list..."
+        echo "" >> "$target_pkg_list"
+        grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
+    echo "Custom official packages appended to omarchy-base.packages"
+    fi
 fi
 
 # Make log uploader available in the ISO too
