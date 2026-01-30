@@ -252,11 +252,20 @@ if [[ ${#aur_packages[@]} -gt 0 ]]; then
 
       copied_count=0
       copied_files=()
+
+      # Capture built AUR packages
       while IFS= read -r -d '' f; do
         cp "$f" "$offline_mirror_dir/"
         copied_files+=("$f")
         copied_count=$((copied_count + 1))
       done < <(find /tmp/aur-builds -name "*.pkg.tar.zst" -newer "$marker" -print0 2>/dev/null)
+
+      # Capture official dependencies downloaded by pacman during the build
+      while IFS= read -r -d '' f; do
+        cp "$f" "$offline_mirror_dir/"
+        copied_files+=("$f")
+        copied_count=$((copied_count + 1))
+      done < <(find /var/cache/pacman/pkg -name "*.pkg.tar.zst" -newer "$marker" -print0 2>/dev/null)
 
       rm -f "$marker"
       total_copied=$((total_copied + copied_count))
