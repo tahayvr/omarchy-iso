@@ -189,6 +189,7 @@ if [[ -f /builder/custom-aur.packages ]]; then
   
   if [[ ${#aur_packages[@]} -gt 0 ]]; then
     echo "Building ${#aur_packages[@]} AUR package(s)..."
+    echo "AUR packages requested: ${aur_packages[*]}"
     
     # Create a build user (makepkg doesn't run as root)
     useradd -m -G wheel builduser
@@ -207,22 +208,41 @@ if [[ -f /builder/custom-aur.packages ]]; then
     mkdir -p /tmp/aur-builds
     chown builduser:builduser /tmp/aur-builds
     
+    total_copied=0
+
     # Build each AUR package
-    for pkg in \"\${aur_packages[@]}\"; do
-      echo "Building AUR package: \$pkg"
+    for pkg in "${aur_packages[@]}"; do
+      echo "Building AUR package: $pkg"
 
-      before_count=$(find "$offline_mirror_dir" -maxdepth 1 -name "*.pkg.tar.zst" 2>/dev/null | wc -l)
-      su - builduser -c "yay -S --noconfirm --needed --builddir /tmp/aur-builds \$pkg"
-      
-      # Copy built package to offline mirror
-      find /tmp/aur-builds -name \"*.pkg.tar.zst\" -exec cp {} $offline_mirror_dir/ \;
+      marker=$(mktemp)
+      touch "$marker"
 
-      after_count=$(find "$offline_mirror_dir" -maxdepth 1 -name "*.pkg.tar.zst" 2>/dev/null | wc -l)
-      added_count=$((after_count - before_count))
-      echo "AUR package '\$pkg' done; copied ${added_count} file(s) into offline mirror"
+      # NOTE: $pkg must expand here (root shell) so the builduser shell gets the actual package name.
+      su - builduser -c "yay -S --noconfirm --needed --builddir /tmp/aur-builds -- \"$pkg\""
+
+      copied_count=0
+      copied_files=()
+      while IFS= read -r -d '' f; do
+        cp "$f" "$offline_mirror_dir/"
+        copied_files+=("$f")
+        copied_count=$((copied_count + 1))
+      done < <(find /tmp/aur-builds -name "*.pkg.tar.zst" -newer "$marker" -print0 2>/dev/null)
+
+      rm -f "$marker"
+      total_copied=$((total_copied + copied_count))
+
+      echo "AUR package '$pkg' done; copied ${copied_count} new file(s) into offline mirror"
+      if (( copied_count > 0 )); then
+        echo "Newly built package files for '$pkg' (up to 10):"
+        printf '%s\n' "${copied_files[@]}" | tail -n 10
+      else
+        echo "Warning: No new *.pkg.tar.zst produced for '$pkg' (check yay output above)"
+      fi
     done
 
-    echo "AUR build complete. Offline mirror now contains $(find \"$offline_mirror_dir\" -maxdepth 1 -name \"*.pkg.tar.zst\" 2>/dev/null | wc -l) package file(s)."
+    shopt -s nullglob
+    mirror_files=("$offline_mirror_dir"/*.pkg.tar.zst)
+    echo "AUR build complete. Total new file(s) copied: ${total_copied}. Offline mirror now contains ${#mirror_files[@]} package file(s)."
     if compgen -G "$offline_mirror_dir/*.pkg.tar.zst" > /dev/null; then
       echo "Latest AUR/offline mirror package files (up to 10):"
       ls -1t "$offline_mirror_dir"/*.pkg.tar.zst | head -n 10
