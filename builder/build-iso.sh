@@ -133,6 +133,14 @@ if [[ -f "$target_pkg_list" ]]; then
     grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
   echo "Custom official packages appended to omarchy-base.packages"
   fi
+
+  # Ensure custom AUR packages are also installed (they are built into the offline repo above)
+  if [[ -f /builder/custom-aur.packages ]]; then
+    echo "Adding custom AUR packages to installer list..."
+    echo "" >> "$target_pkg_list"
+    grep -v '^#' /builder/custom-aur.packages | grep -v '^$' >> "$target_pkg_list" || true
+    echo "Custom AUR packages appended to omarchy-base.packages"
+  fi
 fi
 
 # Remove packages listed in custom.ignored from omarchy-base.packages
@@ -170,11 +178,30 @@ if [[ -f "$target_pkg_list" ]]; then
   echo "==== END omarchy-base.packages (final) ===="
 fi
 
+# Read requested AUR packages once (used both for filtering pacman downloads and for yay builds)
+aur_packages=()
+aur_filter_file=""
+if [[ -f /builder/custom-aur.packages ]]; then
+  mapfile -t aur_packages < <(grep -v '^#' /builder/custom-aur.packages | grep -v '^$' || true)
+fi
+if ((${#aur_packages[@]} > 0)); then
+  aur_filter_file=$(mktemp)
+  printf '%s\n' "${aur_packages[@]}" > "$aur_filter_file"
+fi
+
 # Build list of all the packages needed for the offline mirror
 all_packages=($(cat "$build_cache_dir/packages.x86_64"))
-all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages" | grep -v '^$'))
-all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-other.packages" | grep -v '^$'))
-all_packages+=($(grep -v '^#' /builder/archinstall.packages | grep -v '^$'))
+if [[ -n "$aur_filter_file" ]]; then
+  # Exclude AUR package names here because pacman cannot download them from official repos.
+  # They are built later via yay and added to the offline repo.
+  all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages" | grep -v '^$' | grep -v -x -F -f "$aur_filter_file"))
+  all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-other.packages" | grep -v '^$' | grep -v -x -F -f "$aur_filter_file"))
+  all_packages+=($(grep -v '^#' /builder/archinstall.packages | grep -v '^$' | grep -v -x -F -f "$aur_filter_file"))
+else
+  all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages" | grep -v '^$'))
+  all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-other.packages" | grep -v '^$'))
+  all_packages+=($(grep -v '^#' /builder/archinstall.packages | grep -v '^$'))
+fi
 
 # Download all the packages to the offline mirror inside the ISO
 mkdir -p /tmp/offlinedb
@@ -183,11 +210,14 @@ if [[ $OMARCHY_MIRROR == "edge" ]]; then
 else
   pacman --config /configs/pacman-online-stable.conf --noconfirm -Syw "${all_packages[@]}" --cachedir $offline_mirror_dir/ --dbpath /tmp/offlinedb
 fi
+
+# Clean up temporary filter file if created
+if [[ -n "$aur_filter_file" ]]; then
+  rm -f "$aur_filter_file"
+fi
+
 # Build and package AUR packages if specified
-if [[ -f /builder/custom-aur.packages ]]; then
-  aur_packages=($(grep -v '^#' /builder/custom-aur.packages | grep -v '^$'))
-  
-  if [[ ${#aur_packages[@]} -gt 0 ]]; then
+if [[ ${#aur_packages[@]} -gt 0 ]]; then
     echo "Building ${#aur_packages[@]} AUR package(s)..."
     echo "AUR packages requested: ${aur_packages[*]}"
     
@@ -249,9 +279,8 @@ if [[ -f /builder/custom-aur.packages ]]; then
     else
       echo "Warning: No *.pkg.tar.zst files found in offline mirror after AUR build"
     fi
-  else
-    echo "custom-aur.packages is present but empty; skipping AUR builds"
-  fi
+else
+  echo "No custom AUR packages requested; skipping AUR builds"
 fi
 
 # Add all packages to the offline repository database
