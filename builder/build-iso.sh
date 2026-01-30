@@ -91,17 +91,6 @@ if [[ -f /builder/custom.ignored ]]; then
   fi
 fi
 
-# Inject custom packages into the installer's package list
-target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
-if [[ -f "$target_pkg_list" ]]; then
-    if [[ -f /builder/custom-arch.packages ]]; then
-        echo "Adding custom official packages to installer list..."
-        echo "" >> "$target_pkg_list"
-        grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
-    echo "Custom official packages appended to omarchy-base.packages"
-    fi
-fi
-
 # Make log uploader available in the ISO too
 mkdir -p "$build_cache_dir/airootfs/usr/local/bin/"
 cp "$build_cache_dir/airootfs/root/omarchy/bin/omarchy-upload-log" "$build_cache_dir/airootfs/usr/local/bin/omarchy-upload-log"
@@ -135,32 +124,57 @@ cp "/tmp/$NODE_FILENAME" "$build_cache_dir/airootfs/opt/packages/"
 arch_packages=(linux-t2 git gum jq openssl plymouth tzupdate omarchy-keyring)
 printf '%s\n' "${arch_packages[@]}" >>"$build_cache_dir/packages.x86_64"
 
+# Inject custom packages into the installer's package list
+target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
+if [[ -f "$target_pkg_list" ]]; then
+  if [[ -f /builder/custom-arch.packages ]]; then
+    echo "Adding custom official packages to installer list..."
+    echo "" >> "$target_pkg_list"
+    grep -v '^#' /builder/custom-arch.packages | grep -v '^$' >> "$target_pkg_list" || true
+  echo "Custom official packages appended to omarchy-base.packages"
+  fi
+fi
+
+# Remove packages listed in custom.ignored from omarchy-base.packages
+if [[ -f /builder/custom.ignored ]] && [[ -f "$target_pkg_list" ]]; then
+  mapfile -t ignored_packages < <(grep -v '^#' /builder/custom.ignored | grep -v '^$')
+
+  if ((${#ignored_packages[@]} > 0)); then
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^# ]] || [[ -z "$line" ]]; then
+        echo "$line" >> "$temp_file"
+      else
+        should_exclude=false
+        for ignored in "${ignored_packages[@]}"; do
+          if [[ "$line" == "$ignored" ]]; then
+            should_exclude=true
+            break
+          fi
+        done
+
+        if [[ "$should_exclude" == false ]]; then
+          echo "$line" >> "$temp_file"
+        fi
+      fi
+    done < "$target_pkg_list"
+
+    mv "$temp_file" "$target_pkg_list"
+  fi
+fi
+
+# DEBUG: Print final installer package list for testing
+if [[ -f "$target_pkg_list" ]]; then
+  echo "==== BEGIN omarchy-base.packages (final) ===="
+  cat "$target_pkg_list"
+  echo "==== END omarchy-base.packages (final) ===="
+fi
+
 # Build list of all the packages needed for the offline mirror
 all_packages=($(cat "$build_cache_dir/packages.x86_64"))
 all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages" | grep -v '^$'))
 all_packages+=($(grep -v '^#' "$build_cache_dir/airootfs/root/omarchy/install/omarchy-other.packages" | grep -v '^$'))
 all_packages+=($(grep -v '^#' /builder/archinstall.packages | grep -v '^$'))
-
-# Optional: user-defined custom packages
-if [[ -f /builder/custom-arch.packages ]]; then
-  all_packages+=($(grep -v '^#' /builder/custom-arch.packages | grep -v '^$'))
-fi
-
-# Remove packages listed in custom.ignored
-if [[ -f /builder/custom.ignored ]]; then
-  mapfile -t ignored_packages < <(grep -v '^#' /builder/custom.ignored | grep -v '^$')
-  
-  if ((${#ignored_packages[@]} > 0)); then
-    ignore_regex="^($(printf '%s|' "${ignored_packages[@]}" | sed 's/|$//'))$"
-    filtered_packages=()
-    for pkg in "${all_packages[@]}"; do
-      if ! [[ $pkg =~ $ignore_regex ]]; then
-        filtered_packages+=("$pkg")
-      fi
-    done
-    all_packages=("${filtered_packages[@]}")
-  fi
-fi
 
 # Download all the packages to the offline mirror inside the ISO
 mkdir -p /tmp/offlinedb
@@ -196,25 +210,32 @@ if [[ -f /builder/custom-aur.packages ]]; then
     # Build each AUR package
     for pkg in \"\${aur_packages[@]}\"; do
       echo "Building AUR package: \$pkg"
+
+      before_count=$(find "$offline_mirror_dir" -maxdepth 1 -name "*.pkg.tar.zst" 2>/dev/null | wc -l)
       su - builduser -c "yay -S --noconfirm --needed --builddir /tmp/aur-builds \$pkg"
       
       # Copy built package to offline mirror
       find /tmp/aur-builds -name \"*.pkg.tar.zst\" -exec cp {} $offline_mirror_dir/ \;
+
+      after_count=$(find "$offline_mirror_dir" -maxdepth 1 -name "*.pkg.tar.zst" 2>/dev/null | wc -l)
+      added_count=$((after_count - before_count))
+      echo "AUR package '\$pkg' done; copied ${added_count} file(s) into offline mirror"
     done
+
+    echo "AUR build complete. Offline mirror now contains $(find \"$offline_mirror_dir\" -maxdepth 1 -name \"*.pkg.tar.zst\" 2>/dev/null | wc -l) package file(s)."
+    if compgen -G "$offline_mirror_dir/*.pkg.tar.zst" > /dev/null; then
+      echo "Latest AUR/offline mirror package files (up to 10):"
+      ls -1t "$offline_mirror_dir"/*.pkg.tar.zst | head -n 10
+    else
+      echo "Warning: No *.pkg.tar.zst files found in offline mirror after AUR build"
+    fi
+  else
+    echo "custom-aur.packages is present but empty; skipping AUR builds"
   fi
 fi
 
 # Add all packages to the offline repository database
 repo-add --new "$offline_mirror_dir/offline.db.tar.gz" "$offline_mirror_dir/"*.pkg.tar.zst
-
-# Inject custom AUR packages into the installer's package list
-# We do this LATE (after repo-add) so they are not included in the 'pacman -Syw' loop earlier
-target_pkg_list="$build_cache_dir/airootfs/root/omarchy/install/omarchy-base.packages"
-if [[ -f "$target_pkg_list" ]] && [[ -f /builder/custom-aur.packages ]]; then
-    echo "Adding custom AUR packages to installer list..."
-    echo "" >> "$target_pkg_list"
-    grep -v '^#' /builder/custom-aur.packages | grep -v '^$' >> "$target_pkg_list" || true
-fi
 
 # Create a symlink to the offline mirror instead of duplicating it.
 # mkarchiso needs packages at /var/cache/omarchy/mirror/offline in the container,
