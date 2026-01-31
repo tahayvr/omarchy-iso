@@ -119,34 +119,36 @@ EOF
   if [[ -d /root/custom-config ]]; then
     target_config="/mnt/home/$OMARCHY_USER/.local/share/omarchy/config"
     mkdir -p "$target_config"
-    # For each top-level folder (e.g., hypr, waybar, kitty), replace Omarchy's version
-    for folder in /root/custom-config/*; do
-      if [[ -d "$folder" ]]; then
-        name=$(basename "$folder")
+    # For each top-level item, replace Omarchy's version
+    for item in /root/custom-config/*; do
+      if [[ -e "$item" ]]; then
+        name=$(basename "$item")
         rm -rf "$target_config/$name"
-        cp -r "$folder" "$target_config/$name"
+        cp -r "$item" "$target_config/$name"
       fi
     done
   fi
 
-  # Copy user-provided home dotfiles to omarchy's default directory
+  # Copy user-provided HOME dotfiles to omarchy's default directory
   if [[ -d /root/omarchy/default/home-dotfiles ]]; then
-    # Copy each dotfile/folder from home-dotfiles to the default directory
+    # Copy each dotfile/folder from home-dotfiles to the default/custom-dotfiles directory
+    target_dotfiles="/mnt/home/$OMARCHY_USER/.local/share/omarchy/default/custom-dotfiles"
+    mkdir -p "$target_dotfiles"
     for item in /root/omarchy/default/home-dotfiles/*; do
       if [[ -e "$item" ]]; then
-        cp -r "$item" /mnt/home/$OMARCHY_USER/.local/share/omarchy/default/
+        cp -r "$item" "$target_dotfiles/"
       fi
     done
     
-    # Modify omarchy's config.sh to copy home dotfiles
+    # Modify omarchy's config.sh to copy HOME dotfiles
     config_sh="/mnt/home/$OMARCHY_USER/.local/share/omarchy/install/config/config.sh"
     if [[ -f "$config_sh" ]]; then
-      # Add logic to copy home dotfiles after the bashrc line
+      # Add logic to copy HOME dotfiles after the bashrc line
       sed -i '/cp ~\/.local\/share\/omarchy\/default\/bashrc ~\/.bashrc/a\
 \
-# Copy user-provided home dotfiles\
-if [[ -d ~/.local/share/omarchy/default/home-dotfiles ]]; then\
-  for item in ~/.local/share/omarchy/default/home-dotfiles/*; do\
+# Copy user-provided HOME dotfiles\
+if [[ -d ~/.local/share/omarchy/default/custom-dotfiles ]]; then\
+  for item in ~/.local/share/omarchy/default/custom-dotfiles/*; do\
     if [[ -e "$item" ]]; then\
       item_name=$(basename "$item")\
       # Copy files directly, folders recursively\
