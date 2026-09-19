@@ -135,6 +135,12 @@ DOCKER_ARGS=(
   -v "$BUILD_ROOT/configs:/configs:ro"
 )
 
+# A named container lets a wrapper (omarchyiso) stop the build with
+# `docker rm -f` if the user aborts, since killing the client leaves it running.
+if [[ -n ${OMARCHY_ISO_CONTAINER_NAME:-} ]]; then
+  DOCKER_ARGS+=(--name "$OMARCHY_ISO_CONTAINER_NAME")
+fi
+
 if [[ -n $LOCAL_OMARCHY_PATH ]]; then
   DOCKER_ARGS+=(
     -v "$LOCAL_OMARCHY_PATH:/omarchy-source:ro"

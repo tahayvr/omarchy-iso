@@ -7,3 +7,9 @@ __pycache__/
 
 # Acceptance test harness artifacts
 test-runs/**
+
+# Per-build customisation inputs written by omarchyiso
+builder/custom.ignored
+builder/custom-arch.packages
+builder/custom-aur.packages
+configs/airootfs/usr/share/omarchy-iso/custom-home/

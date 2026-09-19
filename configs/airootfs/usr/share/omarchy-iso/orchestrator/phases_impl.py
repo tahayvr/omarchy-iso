@@ -1375,6 +1375,51 @@ def run_chroot_finalizer(ctx: InstallContext) -> None:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# apply_custom_home: overlay dotfiles bundled by a personalised build
+# (omarchyiso) onto the target. The bundle is a $HOME-relative tree, so
+# ".config/hypr/hyprland.conf" lands at ~/.config/hypr/hyprland.conf.
+#
+# Runs after run_chroot_finalizer so the user's files win over everything
+# /etc/skel and omarchy-provision-user seeded. The overlay also goes into the
+# target's /etc/skel, which is what deferred-provisioning installs (no user yet)
+# and any later-created user are seeded from.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CUSTOM_HOME_DIR = Path("/usr/share/omarchy-iso/custom-home")
+
+
+def apply_custom_home(ctx: InstallContext) -> None:
+    if not CUSTOM_HOME_DIR.is_dir():
+        info("› no custom dotfiles bundled; skipping")
+        return
+
+    entries = sorted(entry.name for entry in CUSTOM_HOME_DIR.iterdir())
+    if not entries:
+        info("› custom dotfiles bundle is empty; skipping")
+        return
+
+    destinations = [ctx.target / "etc" / "skel"]
+    user_home: Path | None = None
+    if ctx.username:
+        user_home = ctx.target / "home" / ctx.username
+        if user_home.is_dir():
+            destinations.append(user_home)
+        else:
+            user_home = None
+
+    info(f"› applying {len(entries)} custom dotfile entries: {', '.join(entries)}")
+    for destination in destinations:
+        destination.mkdir(parents=True, exist_ok=True)
+        # Trailing "/." copies dotfiles too and merges into existing directories.
+        subprocess.run(["cp", "-a", f"{CUSTOM_HOME_DIR}/.", str(destination)], check=True)
+
+    if user_home is not None:
+        owner = f"{ctx.username}:{ctx.username}"
+        paths = [f"/home/{ctx.username}/{entry}" for entry in entries]
+        subprocess.run(["arch-chroot", str(ctx.target), "chown", "-R", owner, *paths], check=True)
+
+
 def configure_dns_resolver(ctx: InstallContext) -> None:
     """Put the installed system in systemd-resolved stub mode.
 

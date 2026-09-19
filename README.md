@@ -143,3 +143,14 @@ Run `./bin/omarchy-iso-upload [release/omarchy.iso]`. This requires rclone confi
 ## Full release of the ISO
 
 Run `./bin/omarchy-iso-release VERSION` to create, test, sign, and upload the ISO in one flow. Add `--rc` to release an RC build instead.
+
+## Personalised builds (omarchyiso)
+
+This fork adds optional inputs that the [omarchyiso](https://github.com/tahayvr/omarchyiso) TUI writes before running `./bin/omarchy-iso-make`. A build with none of them present is identical to upstream.
+
+- `builder/custom.ignored` — packages removed from `omarchy-base.packages` (one per line).
+- `builder/custom-arch.packages` — official Arch packages added to `omarchy-base.packages` and the offline mirror.
+- `builder/custom-aur.packages` — AUR packages built inside the container with `yay`, added to the offline mirror and to `omarchy-base.packages`, together with their repo dependencies.
+- `configs/airootfs/usr/share/omarchy-iso/custom-home/` — a `$HOME`-relative tree (for example `.config/hypr/`, `.bashrc`) that the installer copies over the new user's home and the target's `/etc/skel` after Omarchy finalizes the user.
+
+The package handling lives in `builder/custom-packages.sh`; the dotfile overlay is the "Applying custom dotfiles" phase of the install orchestrator. Set `OMARCHY_ISO_CONTAINER_NAME` to give the build container a name so a wrapper can stop it.

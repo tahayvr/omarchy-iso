@@ -168,6 +168,15 @@ mkdir -p "$build_cache_dir/airootfs/usr/share/omarchy-iso"
 cp "${base_pkg_lists[0]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
 cp "${base_pkg_lists[1]}" "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-other.packages"
 
+# Personalised builds (omarchyiso) may drop, add, or AUR-build packages. The
+# shipped copies are what the install orchestrator reads, so from here on they
+# are the source of truth for the offline mirror as well.
+base_pkg_lists=(
+  "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
+  "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-other.packages"
+)
+source /builder/custom-packages.sh
+
 # The configurator's setup form comes from the runtime this ISO bundles, so the
 # installer and the first-boot setup that finishes a deferred install can never
 # disagree. A runtime predating the split ships no such file, which would leave
@@ -197,8 +206,20 @@ mapfile -t all_packages < <(
     # Always include the selected Omarchy packages so the target install can
     # find the runtime and companion packages in the offline mirror.
     printf '%s\n' "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"
-  } | sort -u
+    # Repo dependencies of custom AUR packages (custom-packages.sh).
+    printf '%s\n' "${custom_aur_deps[@]}"
+  } | grep -v '^$' | sort -u
 )
+
+# Custom AUR packages only exist in the offline mirror, so keep them out of the
+# online pacman transactions. Their built files are added back to the keep-set
+# below, next to the --local-source packages.
+if (( ${#custom_aur_names[@]} > 0 )); then
+  mapfile -t all_packages < <(
+    printf '%s\n' "${all_packages[@]}" |
+      grep -Fxv -f <(printf '%s\n' "${custom_aur_names[@]}") || true
+  )
+fi
 
 # Arch dropped the prebuilt broadcom-wl on 2026-09-02 and rebuilt broadcom-wl-dkms
 # with replaces=(broadcom-wl). A replaces entry only helps upgrades of an already
@@ -274,6 +295,10 @@ if [[ -n ${LOCAL_OMARCHY_BUILD:-} ]]; then
     fi
     required_package_files+=("$local_package_file")
   done
+fi
+
+if (( ${#custom_aur_files[@]} > 0 )); then
+  required_package_files+=("${custom_aur_files[@]}")
 fi
 
 printf '%s\n' "${required_package_files[@]}" |
